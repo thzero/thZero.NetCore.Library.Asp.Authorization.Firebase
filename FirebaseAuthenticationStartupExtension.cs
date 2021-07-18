@@ -25,7 +25,9 @@ using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -34,11 +36,15 @@ using Microsoft.Extensions.Options;
 using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
-using Microsoft.AspNetCore.Authorization;
+
+using Nito.AsyncEx;
+
+using thZero.Instrumentation;
 
 namespace thZero.AspNetCore.Firebase
 {
-    public class FirebaseAuthenticationStartupExtension : AuthStartupExtension<FirebaseAuthorizationConfiguration>
+    public abstract class FirebaseAuthenticationStartupExtension<TAuthorizationService> : AuthStartupExtension<FirebaseAuthorizationConfiguration>
+        where TAuthorizationService : class, Services.Authorization.IAuthorizationService
     {
         #region Public Methods
         /// <summary>
@@ -54,6 +60,8 @@ namespace thZero.AspNetCore.Firebase
                 //Credential = GoogleCredential.FromFile(pathToKey)
                 Credential = GoogleCredential.GetApplicationDefault()
             });
+
+            services.AddMemoryCache();
         }
 
         public override void ConfigureServicesInitializeAuthentication(IServiceCollection services, IWebHostEnvironment env, IConfiguration configuration)
@@ -130,6 +138,8 @@ namespace thZero.AspNetCore.Firebase
 
         public override void ConfigureServicesInitializeAuthorization(IServiceCollection services, IWebHostEnvironment env, IConfiguration configuration)
         {
+            services.AddSingleton<Services.Authorization.IAuthorizationService, TAuthorizationService>();
+
             services.AddAuthorization(
                 options =>
                 {
@@ -142,7 +152,7 @@ namespace thZero.AspNetCore.Firebase
         #region Protected Methods
         protected virtual void AuthorizationOptions(AuthorizationOptions options)
         {
-            options.AddPolicy(FirebaseAuthenticationHandler.KeyPolicy,
+            options.AddPolicy(ConfigurationSectionKey,
                            builder =>
                            {
                                 builder.AuthenticationSchemes.Add(FirebaseAuthenticationOptions.AuthenticationScheme);
@@ -153,7 +163,7 @@ namespace thZero.AspNetCore.Firebase
 
         protected virtual void AuthorizationOptionsDefaultPolicy(AuthorizationOptions options)
         {
-            options.DefaultPolicy = options.GetPolicy(FirebaseAuthenticationHandler.KeyPolicy);
+            options.DefaultPolicy = options.GetPolicy(ConfigurationSectionKey);
         }
         #endregion
 
@@ -164,10 +174,18 @@ namespace thZero.AspNetCore.Firebase
 
     public class FirebaseAuthenticationHandler : AuthenticationHandler<FirebaseAuthenticationOptions>
     {
-        public FirebaseAuthenticationHandler(IOptionsMonitor<FirebaseAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock, IOptions<FirebaseAuthorizationConfiguration> config)
+        public FirebaseAuthenticationHandler(Services.Authorization.IAuthorizationService authService, IMemoryCache memoryCache, IOptionsMonitor<FirebaseAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock, IOptions<FirebaseAuthorizationConfiguration> config)
             : base(options, logger, encoder, clock)
         {
+            Enforce.AgainstNull(() => config);
+            Enforce.AgainstNull(() => authService);
+
             _config = config.Value;
+            Enforce.AgainstNull(() => _config);
+
+            _serviceAuth = authService;
+
+            _cache = memoryCache;
         }
 
         #region Protected Methods
@@ -203,12 +221,6 @@ namespace thZero.AspNetCore.Firebase
                 //    claims.Add(new Claim(AdminApiKeyAuthorizeAttribute.KeyPolicy, authHeader));
                 //}
 
-                //if (claims.Count == 0)
-                //{
-                //    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no claims."));
-                //    return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
-                //}
-
                 string bearer = CheckParameterAuthorizationBearer();
                 if (String.IsNullOrEmpty(bearer))
                 {
@@ -225,12 +237,33 @@ namespace thZero.AspNetCore.Firebase
                     return AuthenticateResult.Fail("No bearer token.");
                 }
 
-                FirebaseToken token = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(bearer);
+                FirebaseToken token = await GetTokenAsync(bearer);
                 if (token == null)
                 {
-                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, unverified token."));
-                    //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
-                    return AuthenticateResult.Fail("No unverified token.");
+                    token = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(bearer);
+                    if (token == null)
+                    {
+                        Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, unverified token."));
+                        //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                        return AuthenticateResult.Fail("Unverified token.");
+                    }
+
+                    if (String.IsNullOrEmpty(token.Uid))
+                    {
+                        Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, token is missing user id."));
+                        //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                        return AuthenticateResult.Fail("Token missing user id.");
+                    }
+                }
+
+                long expiration = token.ExpirationTimeSeconds - token.IssuedAtTimeSeconds;
+                await SetTokenAsync(bearer, token, (expiration * 1000) - 250);
+
+                await FetchClaimsAsync(Context.RequestServices.GetService<IInstrumentationPacket>(), claims, token.Uid);
+                if (claims.Count == 0)
+                {
+                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no claims."));
+                    return AuthenticateResult.Fail("No claims.");
                 }
 
                 var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, FirebaseAuthenticationOptions.AuthenticationScheme));
@@ -246,6 +279,11 @@ namespace thZero.AspNetCore.Firebase
                 //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                 return AuthenticateResult.Fail("No apiKey.");
             }
+        }
+
+        protected virtual async Task FetchClaimsAsync(IInstrumentationPacket instrumentation, List<Claim> claims, string userId)
+        {
+            await _serviceAuth.HandleAuthenticateAsync(instrumentation, claims, userId);
         }
         #endregion
 
@@ -268,17 +306,53 @@ namespace thZero.AspNetCore.Firebase
                 result = Request.Headers[KeyAuthorizationShardKey];
             else if (Request.Headers.ContainsKey(KeyAuthorizationShardKey2))
                 result = Request.Headers[KeyAuthorizationShardKey2];
-            //else if (Request.Headers.ContainsKey(KeyAuthorizationBearer))
-            //    result = Request.Headers[KeyAuthorizationBearer];
-            //else if (Request.Headers.ContainsKey(KeyAuthorizationBearer2))
-            //    result = Request.Headers[KeyAuthorizationBearer2];
 
             return result;
+        }
+
+        private async Task<FirebaseToken> GetTokenAsync(string key)
+        {
+            IDisposable release = null;
+            try
+            {
+                release = await _mutex.ReaderLockAsync();
+
+                FirebaseToken token;
+                _cache.TryGetValue(key, out token);
+                return token;
+            }
+            finally
+            {
+                if (release != null)
+                    release.Dispose();
+            }
+        }
+
+        private async Task SetTokenAsync(string key, FirebaseToken token, long expiration)
+        {
+            IDisposable release = null;
+            try
+            {
+                release = await _mutex.WriterLockAsync();
+
+                _cache.Set(key, token,
+                    // Keep in cache for this time, reset time if accessed.
+                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMilliseconds(expiration)));
+            }
+            finally
+            {
+                if (release != null)
+                    release.Dispose();
+            }
         }
         #endregion
 
         #region Fields
         private readonly FirebaseAuthorizationConfiguration _config;
+        private readonly Services.Authorization.IAuthorizationService _serviceAuth;
+
+        private readonly IMemoryCache _cache;
+        private readonly AsyncReaderWriterLock _mutex = new();
         #endregion
 
         #region Constants
@@ -287,10 +361,6 @@ namespace thZero.AspNetCore.Firebase
         private const string KeyAuthorizationBearer = "authorization";
         private const string KeyAuthorizationBearer2 = "Authorization";
         private const string PrefixBearer = "Bearer: ";
-        #endregion
-
-        #region Constants
-        public const string KeyPolicy = "Firebase";
         #endregion
     }
 
