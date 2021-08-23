@@ -45,12 +45,15 @@ namespace thZero.AspNetCore.Firebase
             Enforce.AgainstNull(() => config);
             Enforce.AgainstNull(() => authService);
 
-            _config = config.Value;
-            Enforce.AgainstNull(() => _config);
-
             _serviceAuth = authService;
 
             _cache = memoryCache;
+
+            _config = config.Value;
+            Enforce.AgainstNull(() => _config);
+
+            if (String.IsNullOrEmpty(_config.Key))
+                throw new Exception("Invalid FirebaseAuthenticationHandler shared key in configuration!");
         }
 
         #region Protected Methods
@@ -67,6 +70,9 @@ namespace thZero.AspNetCore.Firebase
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed."));
                     return AuthenticateResult.Fail("No apiKey.");
                 }
+
+                if (String.IsNullOrEmpty(_config.Key))
+                    throw new Exception("Invalid FirebaseAuthenticationHandler shared key in configuration!");
 
                 if (!_config.Key.Equals(sharedKey))
                 {
@@ -86,39 +92,71 @@ namespace thZero.AspNetCore.Firebase
                 //    claims.Add(new Claim(AdminApiKeyAuthorizeAttribute.KeyPolicy, authHeader));
                 //}
 
-                string bearer = CheckParameterAuthorizationBearer();
-                if (String.IsNullOrEmpty(bearer))
+                string authorizationHeader = CheckParameterAuthorizationHeaderr();
+                if (String.IsNullOrEmpty(authorizationHeader))
                 {
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no authorization key."));
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No authorization key.");
                 }
 
-                bearer = bearer.Replace(PrefixBearer, String.Empty);
+                string[] split = authorizationHeader.Split(PrefixAuthorizationSeperator);
+                if ((split == null) || (split.Length != 2))
+                {
+                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no valid authorization key."));
+                    //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                    return AuthenticateResult.Fail("No bearer token.");
+                }
+
+                string bearer = split[0];
                 if (String.IsNullOrEmpty(bearer))
+                {
+                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no authorization header type."));
+                    //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                    return AuthenticateResult.Fail("No bearer token.");
+                }
+                if (!PrefixAuthorizationBearer.EqualsIgnore(bearer.Trim()))
+                {
+                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, not a bearer token."));
+                    //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                    return AuthenticateResult.Fail("No bearer token.");
+                }
+
+                string bearerToken = split[1].Trim();
+                if (String.IsNullOrEmpty(bearerToken))
                 {
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no bearer token."));
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No bearer token.");
                 }
 
-                FirebaseToken token = await GetTokenAsync(bearer);
-                if (token == null)
+                FirebaseToken token = null;
+                try
                 {
-                    token = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(bearer);
+                    token = await GetTokenAsync(bearerToken);
                     if (token == null)
                     {
-                        Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, unverified token."));
-                        //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
-                        return AuthenticateResult.Fail("Unverified token.");
-                    }
+                        token = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(bearerToken);
+                        if (token == null)
+                        {
+                            Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, unverified token."));
+                            //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                            return AuthenticateResult.Fail("Unverified token.");
+                        }
 
-                    if (String.IsNullOrEmpty(token.Uid))
-                    {
-                        Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, token is missing user id."));
-                        //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
-                        return AuthenticateResult.Fail("Token missing user id.");
+                        if (String.IsNullOrEmpty(token.Uid))
+                        {
+                            Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, token is missing user id."));
+                            //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                            return AuthenticateResult.Fail("Unverified token.");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed.", ex));
+                    //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
+                    return AuthenticateResult.Fail("Unverified token.");
                 }
 
                 long expiration = token.ExpirationTimeSeconds - token.IssuedAtTimeSeconds;
@@ -142,7 +180,7 @@ namespace thZero.AspNetCore.Firebase
             {
                 Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed.", ex));
                 //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
-                return AuthenticateResult.Fail("No apiKey.");
+                return AuthenticateResult.Fail("Not valid credentails.");
             }
         }
 
@@ -153,7 +191,7 @@ namespace thZero.AspNetCore.Firebase
         #endregion
 
         #region Private Methods
-        private string CheckParameterAuthorizationBearer()
+        private string CheckParameterAuthorizationHeaderr()
         {
             string result = null;
             if (Request.Headers.ContainsKey(KeyAuthorizationBearer))
@@ -225,7 +263,8 @@ namespace thZero.AspNetCore.Firebase
         private const string KeyAuthorizationShardKey2 = "x-auth-key";
         private const string KeyAuthorizationBearer = "authorization";
         private const string KeyAuthorizationBearer2 = "Authorization";
-        private const string PrefixBearer = "Bearer: ";
+        private const string PrefixAuthorizationBearer = "bearer";
+        private const char PrefixAuthorizationSeperator = ':';
         #endregion
     }
 
