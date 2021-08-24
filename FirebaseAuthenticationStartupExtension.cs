@@ -140,12 +140,11 @@ namespace thZero.AspNetCore.Firebase
         protected virtual void AuthorizationOptions(AuthorizationOptions options)
         {
             options.AddPolicy(ConfigurationSectionKey,
-                           builder =>
-                           {
-                                builder.AuthenticationSchemes.Add(FirebaseAuthenticationOptions.AuthenticationScheme);
-                                //builder.RequireClaim(AdminApiKeyAuthorizeAttribute.KeyPolicy);
-                                builder.RequireAuthenticatedUser();
-                           });
+                builder =>
+                {
+                    builder.AuthenticationSchemes.Add(FirebaseAuthenticationOptions.AuthenticationScheme);
+                    builder.RequireAuthenticatedUser();
+                });
         }
 
         protected virtual void AuthorizationOptionsDefaultPolicy(AuthorizationOptions options)
