@@ -22,7 +22,7 @@
     <PackageReference Include="FirebaseAdmin" Version="2.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="5.0.11" />
     <PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
-    <PackageReference Include="System.Runtime.Caching" Version="5.0.0" />
+    <PackageReference Include="System.Runtime.Caching" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
