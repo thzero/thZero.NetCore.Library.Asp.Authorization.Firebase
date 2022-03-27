@@ -64,10 +64,14 @@ namespace thZero.AspNetCore.Firebase
             try
             {
                 var sharedKey = CheckParameterAuthorizationSharedKey();
+#pragma warning disable CA2254 // Template should be a static expression
                 Logger.LogDebug(Logger.LogFormat(Declaration, "authHeader", () => { return sharedKey; }));
+#pragma warning restore CA2254 // Template should be a static expression
                 if (string.IsNullOrEmpty(sharedKey))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed."));
+#pragma warning restore CA2254 // Template should be a static expression
                     return AuthenticateResult.Fail("No apiKey.");
                 }
 
@@ -76,7 +80,9 @@ namespace thZero.AspNetCore.Firebase
 
                 if (!_config.Key.Equals(sharedKey))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, shared api key invalid."));
+#pragma warning restore CA2254 // Template should be a static expression
                     return AuthenticateResult.Fail("Invalid apiKey.");
                 }
 
@@ -95,7 +101,9 @@ namespace thZero.AspNetCore.Firebase
                 string authorizationHeader = CheckParameterAuthorizationHeaderr();
                 if (String.IsNullOrEmpty(authorizationHeader))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no authorization key."));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No authorization key.");
                 }
@@ -103,7 +111,9 @@ namespace thZero.AspNetCore.Firebase
                 string[] split = authorizationHeader.Split(PrefixAuthorizationSeperator);
                 if ((split == null) || (split.Length != 2))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no valid authorization key."));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No bearer token.");
                 }
@@ -111,13 +121,17 @@ namespace thZero.AspNetCore.Firebase
                 string bearer = split[0];
                 if (String.IsNullOrEmpty(bearer))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no authorization header type."));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No bearer token.");
                 }
                 if (!PrefixAuthorizationBearer.EqualsIgnore(bearer.Trim()))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, not a bearer token."));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No bearer token.");
                 }
@@ -125,7 +139,9 @@ namespace thZero.AspNetCore.Firebase
                 string bearerToken = split[1].Trim();
                 if (String.IsNullOrEmpty(bearerToken))
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no bearer token."));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("No bearer token.");
                 }
@@ -139,14 +155,18 @@ namespace thZero.AspNetCore.Firebase
                         token = await FirebaseAuth.DefaultInstance.VerifyIdTokenAsync(bearerToken);
                         if (token == null)
                         {
+#pragma warning disable CA2254 // Template should be a static expression
                             Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, unverified token."));
+#pragma warning restore CA2254 // Template should be a static expression
                             //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                             return AuthenticateResult.Fail("Unverified token.");
                         }
 
                         if (String.IsNullOrEmpty(token.Uid))
                         {
+#pragma warning disable CA2254 // Template should be a static expression
                             Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, token is missing user id."));
+#pragma warning restore CA2254 // Template should be a static expression
                             //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                             return AuthenticateResult.Fail("Unverified token.");
                         }
@@ -154,7 +174,9 @@ namespace thZero.AspNetCore.Firebase
                 }
                 catch (Exception ex)
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed.", ex));
+#pragma warning restore CA2254 // Template should be a static expression
                     //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                     return AuthenticateResult.Fail("Unverified token.");
                 }
@@ -165,20 +187,26 @@ namespace thZero.AspNetCore.Firebase
                 await FetchClaimsAsync(Context.RequestServices.GetService<IInstrumentationPacket>(), claims, token.Uid);
                 if (claims.Count == 0)
                 {
+#pragma warning disable CA2254 // Template should be a static expression
                     Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed, no claims."));
+#pragma warning restore CA2254 // Template should be a static expression
                     return AuthenticateResult.Fail("No claims.");
                 }
 
                 var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, FirebaseAuthenticationOptions.AuthenticationScheme));
                 var ticket = new AuthenticationTicket(principal, FirebaseAuthenticationOptions.AuthenticationScheme);
 
+#pragma warning disable CA2254 // Template should be a static expression
                 Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Success."));
+#pragma warning restore CA2254 // Template should be a static expression
                 //return Task.FromResult(AuthenticateResult.Success(ticket));
                 return AuthenticateResult.Success(ticket);
             }
             catch (Exception ex)
             {
+#pragma warning disable CA2254 // Template should be a static expression
                 Logger.LogDebug(Logger.LogFormat(Declaration, "Authenticate: Failed.", ex));
+#pragma warning restore CA2254 // Template should be a static expression
                 //return Task.FromResult(AuthenticateResult.Fail("No apiKey."));
                 return AuthenticateResult.Fail("Not valid credentails.");
             }
@@ -220,8 +248,7 @@ namespace thZero.AspNetCore.Firebase
             {
                 release = await _mutex.ReaderLockAsync();
 
-                FirebaseToken token;
-                _cache.TryGetValue(key, out token);
+                _cache.TryGetValue(key, out FirebaseToken token);
                 return token;
             }
             finally
@@ -285,7 +312,9 @@ namespace thZero.AspNetCore.Firebase
     public static class FirebaseAuthenticationHandlerExtensions
     {
         #region Public Methods
+#pragma warning disable IDE0060 // Remove unused parameter
         public static AuthenticationBuilder AddFirebase(this AuthenticationBuilder builder, IServiceCollection services)
+#pragma warning restore IDE0060 // Remove unused parameter
         {
             return builder.AddScheme<FirebaseAuthenticationOptions, FirebaseAuthenticationHandler>(
                 FirebaseAuthenticationOptions.AuthenticationScheme, // Name of scheme
