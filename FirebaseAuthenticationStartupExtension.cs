@@ -41,7 +41,7 @@ namespace thZero.AspNetCore.Firebase
         {
             base.ConfigureServicesPre(services, env, configuration);
 
-            var pathToKey = Path.Combine(Directory.GetCurrentDirectory(), "keys", "firebase_admin_sdk.json");
+            //string pathToKey = Path.Combine(Directory.GetCurrentDirectory(), "keys", "firebase_admin_sdk.json");
             FirebaseApp.Create(new AppOptions
             {
                 //Credential = GoogleCredential.FromFile(pathToKey)
